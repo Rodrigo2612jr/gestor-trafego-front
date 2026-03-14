@@ -38,7 +38,7 @@ class ErrorBoundary extends Component {
 /* ═══════════════════════════════════════════════════════════════
    API LAYER — Comunicação com o backend
    ═══════════════════════════════════════════════════════════════ */
-const API_BASE = "http://localhost:3001/api";
+const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:3001") + "/api";
 
 const api = {
   _token: localStorage.getItem("gestor_token"),
