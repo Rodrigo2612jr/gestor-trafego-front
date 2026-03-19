@@ -759,10 +759,13 @@ function ChatPage() {
   const [typing, setTyping] = useState(false);
   const [recording, setRecording] = useState(false);
   const [playingId, setPlayingId] = useState(null);
+  const [attachedImage, setAttachedImage] = useState(null); // { file, previewUrl, uploadedUrl }
+  const [uploadingImage, setUploadingImage] = useState(false);
   const chatRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const currentAudioRef = useRef(null);
+  const chatFileInputRef = useRef(null);
   const anyConnected = data.connections?.google?.connected || data.connections?.meta?.connected;
 
   useEffect(() => {
@@ -775,14 +778,44 @@ function ChatPage() {
     ? ["Analise minhas campanhas", "Cria campanha de Colágeno no Meta", "Gera um criativo pra Ashwagandha", "Quais campanhas escalar?", "Cria copies pra todos os produtos", "O que tá performando mal?"]
     : ["Cria uma campanha completa de Colágeno", "Gera um criativo pra Ashwagandha", "Quais produtos naturais mais vendem?", "Monta uma estratégia de funil completo", "Cria copies pra Meta Ads", "Como escalar no nicho de naturais?"];
 
+  const handleAttachImage = async (file) => {
+    if (!file) return;
+    const previewUrl = URL.createObjectURL(file);
+    setAttachedImage({ file, previewUrl, uploadedUrl: null });
+    setUploadingImage(true);
+    try {
+      const result = await api.uploadImages([file], file.name);
+      const uploaded = result.creatives?.[0] || result.creative;
+      const uploadedUrl = uploaded?.image_url || uploaded?.url || previewUrl;
+      setAttachedImage(prev => ({ ...prev, uploadedUrl }));
+    } catch {
+      toast.error("Erro ao enviar imagem");
+      setAttachedImage(null);
+    }
+    setUploadingImage(false);
+  };
+
   const handleSend = async () => {
-    if (!input.trim()) return;
-    const userText = input;
-    setMessages(prev => [...prev, { role: "user", text: userText }]);
+    if (!input.trim() && !attachedImage) return;
+    let userText = input.trim();
+    const imageUrl = attachedImage?.uploadedUrl;
+
+    // Build message with image context for Leo
+    let messageToLeo = userText;
+    if (imageUrl) {
+      messageToLeo = `${userText ? userText + "\n\n" : ""}[Foto do produto enviada: ${imageUrl}]\nUse esta imagem como referência para criar criativos e campanhas.`;
+    }
+
+    setMessages(prev => [...prev, {
+      role: "user",
+      text: userText || "📸 Foto enviada",
+      images: imageUrl ? [imageUrl] : undefined
+    }]);
     setInput("");
+    setAttachedImage(null);
     setTyping(true);
     try {
-      const response = await api.sendMessage(userText);
+      const response = await api.sendMessage(messageToLeo);
       const msg = { role: "assistant", text: response.text };
       if (response.images && response.images.length > 0) msg.images = response.images;
       setMessages(prev => [...prev, msg]);
@@ -937,6 +970,16 @@ function ChatPage() {
               <button key={i} onClick={() => setInput(p)} style={{ padding: "5px 12px", borderRadius: 20, border: `1px solid ${t.border}`, background: "transparent", color: t.textSecondary, fontSize: 11.5, cursor: "pointer", fontFamily: "inherit" }}>{p}</button>
             ))}
           </div>
+          {attachedImage && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "8px 12px", background: t.bgInput, borderRadius: 10, border: `1px solid ${t.border}` }}>
+              <img src={attachedImage.previewUrl} alt="preview" style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 8 }} />
+              <div style={{ flex: 1, fontSize: 12, color: t.textSecondary }}>
+                {uploadingImage ? "⏳ Enviando imagem..." : "✅ Imagem pronta — manda sua mensagem pro Leo"}
+              </div>
+              <button onClick={() => setAttachedImage(null)} style={{ background: "none", border: "none", color: t.textMuted, cursor: "pointer", fontSize: 16 }}>✕</button>
+            </div>
+          )}
+          <input ref={chatFileInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={e => { if (e.target.files[0]) handleAttachImage(e.target.files[0]); e.target.value = ""; }} />
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={recording ? stopRecording : startRecording}
               style={{
@@ -948,11 +991,16 @@ function ChatPage() {
               title={recording ? "Parar gravação" : "Gravar mensagem de voz"}>
               {recording ? I.stopCircle : I.mic}
             </button>
-            <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSend()}
-              placeholder={recording ? "🔴 Gravando... clique em parar quando terminar" : "Pergunte ao seu Gestor de Tráfego AI..."}
+            <button onClick={() => chatFileInputRef.current?.click()} disabled={recording || uploadingImage}
+              title="Enviar foto do produto"
+              style={{ width: 44, height: 44, borderRadius: 12, border: attachedImage ? `2px solid ${t.accentGreen}` : `1px solid ${t.border}`, background: attachedImage ? "rgba(34,197,94,0.15)" : t.bgInput, color: attachedImage ? t.accentGreen : t.textSecondary, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, opacity: (recording || uploadingImage) ? 0.5 : 1 }}>
+              📎
+            </button>
+            <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && !uploadingImage && handleSend()}
+              placeholder={recording ? "🔴 Gravando... clique em parar quando terminar" : attachedImage ? "Descreva como usar a foto (ou manda direto)..." : "Pergunte ao seu Gestor de Tráfego AI..."}
               disabled={recording}
               style={{ flex: 1, padding: "12px 16px", borderRadius: 12, border: `1px solid ${recording ? "#ef4444" : t.border}`, background: t.bgInput, color: t.text, fontSize: 14, outline: "none", fontFamily: "inherit", opacity: recording ? 0.5 : 1 }} />
-            <button onClick={handleSend} disabled={recording} style={{ width: 44, height: 44, borderRadius: 12, background: t.gradient, border: "none", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: recording ? 0.5 : 1 }}>{I.send}</button>
+            <button onClick={handleSend} disabled={recording || uploadingImage} style={{ width: 44, height: 44, borderRadius: 12, background: t.gradient, border: "none", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: (recording || uploadingImage) ? 0.5 : 1 }}>{I.send}</button>
           </div>
         </div>
       </div>
