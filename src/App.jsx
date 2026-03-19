@@ -40,6 +40,13 @@ class ErrorBoundary extends Component {
    ═══════════════════════════════════════════════════════════════ */
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:3001") + "/api";
 
+// Resolve image URLs — local uploads come as /api/... relative paths
+function resolveImageUrl(url) {
+  if (!url) return null;
+  if (url.startsWith("/api/")) return (import.meta.env.VITE_API_URL || "http://localhost:3001") + url;
+  return url;
+}
+
 const api = {
   _token: localStorage.getItem("gestor_token"),
 
@@ -136,6 +143,20 @@ const api = {
   generateImage: (prompt, size) => api.request("/images/generate", { method: "POST", body: JSON.stringify({ prompt, size }) }),
   generateAdCopy: (params) => api.request("/images/adcopy", { method: "POST", body: JSON.stringify(params) }),
   getAICreatives: () => api.request("/images/creatives"),
+
+  // Image upload
+  async uploadImages(files, name, channel) {
+    const formData = new FormData();
+    for (const f of files) formData.append("images", f);
+    if (name) formData.append("name", name);
+    if (channel) formData.append("channel", channel);
+    const headers = {};
+    if (api._token) headers["Authorization"] = `Bearer ${api._token}`;
+    const res = await fetch(`${API_BASE}/images/upload`, { method: "POST", headers, body: formData });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Erro no upload");
+    return data;
+  },
 
   // Reports
   getReports: () => api.request("/reports"),
@@ -1470,6 +1491,11 @@ function CreativesPage({ onNavigate }) {
   const [copyParams, setCopyParams] = useState({ product: "", objective: "Vendas", channel: "Meta", audience: "", tone: "profissional e persuasivo" });
   const [generatedCopy, setGeneratedCopy] = useState(null);
   const [generatingCopy, setGeneratingCopy] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadFiles, setUploadFiles] = useState([]);
+  const [uploadName, setUploadName] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
 
   const handleGenerateImage = async () => {
     if (!aiPrompt.trim()) return;
@@ -1507,7 +1533,8 @@ function CreativesPage({ onNavigate }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
         <div><h1 style={{ fontSize: 22, fontWeight: 700, color: t.text, margin: 0 }}>Criativos</h1><p style={{ fontSize: 13, color: t.textSecondary, margin: 0 }}>Biblioteca e gestão de ativos criativos com IA</p></div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <Btn variant="secondary" size="md" onClick={() => setShowUploadModal(true)}>📤 Upload Imagens</Btn>
           <Btn variant="secondary" size="md" onClick={() => setShowCopyModal(true)}>{I.sparkle} Gerar Copy com IA</Btn>
           <Btn variant="primary" size="md" onClick={() => setShowAIModal(true)}>{I.imageGen} Gerar Imagem com IA</Btn>
         </div>
@@ -1523,7 +1550,7 @@ function CreativesPage({ onNavigate }) {
           {creatives.map(c => (
             <div key={c.id} style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 14, overflow: "hidden" }}>
               {c.image_url ? (
-                <img src={c.image_url} alt={c.name} style={{ width: "100%", height: 200, objectFit: "cover" }} />
+                <img src={resolveImageUrl(c.image_url)} alt={c.name} style={{ width: "100%", height: 200, objectFit: "cover" }} />
               ) : (
                 <div style={{ height: 160, background: t.gradientSubtle, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 48 }}>{c.thumb || "🖼️"}</div>
               )}
@@ -1535,6 +1562,49 @@ function CreativesPage({ onNavigate }) {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Upload Images Modal */}
+      {showUploadModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(4px)" }} onClick={() => { setShowUploadModal(false); setUploadFiles([]); setUploadName(""); }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: "90%", maxWidth: 520, background: t.bgModal, border: `1px solid ${t.border}`, borderRadius: 18, boxShadow: t.shadowLg, maxHeight: "85vh", overflow: "auto" }}>
+            <div style={{ padding: "20px 24px", borderBottom: `1px solid ${t.border}`, display: "flex", justifyContent: "space-between" }}>
+              <div><div style={{ fontSize: 17, fontWeight: 700, color: t.text }}>📤 Upload de Imagens</div><div style={{ fontSize: 12, color: t.textMuted }}>Envie suas próprias fotos para usar nos anúncios</div></div>
+              <button onClick={() => { setShowUploadModal(false); setUploadFiles([]); setUploadName(""); }} style={{ background: "none", border: "none", color: t.textMuted, cursor: "pointer" }}>{I.close}</button>
+            </div>
+            <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
+              <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={e => setUploadFiles(Array.from(e.target.files))} style={{ display: "none" }} />
+              <div onClick={() => fileInputRef.current?.click()} style={{ border: `2px dashed ${t.border}`, borderRadius: 12, padding: 32, textAlign: "center", cursor: "pointer", background: t.bgInput, transition: "border-color 0.2s" }}>
+                <div style={{ fontSize: 36, marginBottom: 8 }}>📷</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: t.text }}>{uploadFiles.length > 0 ? `${uploadFiles.length} imagem(ns) selecionada(s)` : "Clique para selecionar imagens"}</div>
+                <div style={{ fontSize: 12, color: t.textMuted, marginTop: 4 }}>JPG, PNG, GIF, WebP — até 10MB cada</div>
+              </div>
+              {uploadFiles.length > 0 && (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {uploadFiles.map((f, i) => (
+                    <div key={i} style={{ width: 64, height: 64, borderRadius: 8, overflow: "hidden", border: `1px solid ${t.border}` }}>
+                      <img src={URL.createObjectURL(f)} alt={f.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    </div>
+                  ))}
+                </div>
+              )}
+              <input value={uploadName} onChange={e => setUploadName(e.target.value)} placeholder="Nome do criativo (opcional)" style={inputStyle} />
+              <Btn variant="primary" disabled={uploading || uploadFiles.length === 0} onClick={async () => {
+                setUploading(true);
+                try {
+                  const result = await api.uploadImages(uploadFiles, uploadName);
+                  const newCreatives = result.creatives || [result.creative];
+                  setData(prev => ({ ...prev, creatives: [...newCreatives, ...(prev.creatives || [])] }));
+                  toast.success(`${newCreatives.length} imagem(ns) enviada(s)!`);
+                  setShowUploadModal(false); setUploadFiles([]); setUploadName("");
+                } catch (err) { toast.error(err.message); }
+                setUploading(false);
+              }}>
+                {uploading ? "⏳ Enviando..." : `📤 Enviar ${uploadFiles.length || ""} imagem(ns)`}
+              </Btn>
+            </div>
+          </div>
         </div>
       )}
 
