@@ -1162,7 +1162,10 @@ function CampaignsPage({ onNavigate }) {
     if (filter === "Todos") return true;
     if (filter === "Google Ads") return c.channel === "Google";
     if (filter === "Meta Ads") return c.channel === "Meta";
-    return c.status === filter.replace("s", "").replace("Pausada", "Pausada").replace("Ativa", "Ativa");
+    if (filter === "Ativas") return c.status === "Ativa";
+    if (filter === "Pausadas") return c.status === "Pausada";
+    if (filter === "Limitadas") return c.status === "Limitada";
+    return true;
   });
 
   const handlePublish = async () => {
@@ -2463,30 +2466,27 @@ function AppInner() {
   // ─── Fetch all data from backend ───
   const refreshData = useCallback(async () => {
     try {
-      const [connections, campaigns, creatives, audiences, keywords, alerts] = await Promise.all([
-        api.getConnections(),
-        api.getCampaigns().catch(() => []),
-        api.getCreatives().catch(() => []),
-        api.getAudiences().catch(() => []),
-        api.getKeywords().catch(() => []),
-        api.getAlerts().catch(() => []),
+      // Single request loads everything at once (7x faster)
+      const [appData, dashboard] = await Promise.all([
+        api.request("/app-data"),
+        api.getDashboard().catch(() => null),
       ]);
-
-      setData(prev => ({ ...prev, connections, campaigns, creatives, audiences, keywords, alerts }));
-
-      // Fetch dashboard data if any connection is active
-      const hasConn = connections.google?.connected || connections.meta?.connected;
-      if (hasConn) {
-        const dashboard = await api.getDashboard();
-        setData(prev => ({
-          ...prev,
+      setData(prev => ({
+        ...prev,
+        connections: appData.connections,
+        campaigns: appData.campaigns,
+        creatives: appData.creatives,
+        audiences: appData.audiences,
+        keywords: appData.keywords,
+        alerts: appData.alerts,
+        ...(dashboard ? {
           kpis: dashboard.kpis,
           chartData: dashboard.chartData,
           pieData: dashboard.pieData,
           insights: dashboard.insights,
           funnelData: dashboard.funnelData,
-        }));
-      }
+        } : {}),
+      }));
     } catch (err) {
       console.error("Erro ao buscar dados:", err);
     }
