@@ -2151,6 +2151,7 @@ function ApiKeysTab({ inputStyle }) {
       { key: "META_APP_ID", label: "App ID", placeholder: "ID do app no Facebook Developers", help: "developers.facebook.com → Seu App" },
       { key: "META_APP_SECRET", label: "App Secret", placeholder: "Secret do app", help: "Configurações → Básico" },
       { key: "META_AD_ACCOUNT_ID", label: "Ad Account ID", placeholder: "ID da conta de anúncio (sem act_)", help: "Business Manager → Configurações" },
+      { key: "META_ACCESS_TOKEN", label: "Access Token", placeholder: "Token gerado em Casos de uso → Ferramentas", help: "developers.facebook.com → Casos de uso → Criar e gerenciar anúncios → Ferramentas" },
     ]},
   ];
 
