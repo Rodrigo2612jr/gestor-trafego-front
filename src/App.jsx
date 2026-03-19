@@ -165,7 +165,7 @@ const api = {
 
   // OAuth
   getOAuthUrl: (platform) => api.request(`/oauth/${platform}/auth-url`),
-  syncData: () => api.request("/oauth/sync", { method: "POST" }),
+  syncData: () => api.request("/sync", { method: "POST" }),
 
   // Export helper
   exportCSV: (data, filename) => {
@@ -1978,7 +1978,12 @@ function IntegrationsPage() {
       setShowMetaModal(false);
       setMetaToken("");
       setMetaAccountId("");
-      toast.success("Meta Ads conectado!");
+      toast.success("Meta Ads conectado! Buscando campanhas...");
+      // Aguarda sync completo antes de atualizar
+      try {
+        await api.request("/sync", { method: "POST" });
+        toast.success("Campanhas importadas com sucesso!");
+      } catch { toast.info("Conexão salva. Atualize a página para ver os dados."); }
       refreshData();
     } catch (err) { toast.error(err.message); }
     setConnectingMeta(false);
@@ -2077,7 +2082,7 @@ function IntegrationsPage() {
           <div style={{ color: t.accent }}>{I.sparkle}</div>
           <div>
             <div style={{ fontSize: 14, fontWeight: 600, color: t.text }}>Comece conectando suas contas de anúncio</div>
-            <div style={{ fontSize: 12, color: t.textSecondary, marginTop: 2 }}>Conecte Google Ads e/ou Meta Ads via OAuth para sincronizar dados reais das suas campanhas.</div>
+            <div style={{ fontSize: 12, color: t.textSecondary, marginTop: 2 }}>Conecte Google Ads e/ou Meta Ads para sincronizar dados reais das suas campanhas.</div>
           </div>
         </div>
       )}
