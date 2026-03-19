@@ -2469,7 +2469,7 @@ function AppInner() {
       // Single request loads everything at once (7x faster)
       const [appData, dashboard] = await Promise.all([
         api.request("/app-data"),
-        api.getDashboard().catch(() => null),
+        api.getDashboard("30d").catch(() => null),
       ]);
       setData(prev => ({
         ...prev,
