@@ -1945,7 +1945,11 @@ function IntegrationsPage() {
   ];
 
   const [syncing, setSyncing] = useState(false);
-  const OAUTH_PLATFORMS = ["google", "meta", "analytics", "tagmanager", "pixel"];
+  const [showMetaModal, setShowMetaModal] = useState(false);
+  const [metaToken, setMetaToken] = useState("");
+  const [metaAccountId, setMetaAccountId] = useState("");
+  const [connectingMeta, setConnectingMeta] = useState(false);
+  const OAUTH_PLATFORMS = ["google", "analytics", "tagmanager", "pixel"];
 
   const startOAuth = async (platform) => {
     try {
@@ -1960,6 +1964,24 @@ function IntegrationsPage() {
       window.addEventListener("message", handler);
       const check = setInterval(() => { if (popup?.closed) { clearInterval(check); window.removeEventListener("message", handler); refreshData(); } }, 1000);
     } catch (err) { toast.error("Erro ao iniciar OAuth: " + err.message); }
+  };
+
+  const connectMetaWithToken = async () => {
+    if (!metaToken.trim()) return toast.error("Cole o Access Token");
+    setConnectingMeta(true);
+    try {
+      const result = await api.request("/connections/meta/connect-token", {
+        method: "POST",
+        body: JSON.stringify({ access_token: metaToken.trim(), ad_account_id: metaAccountId.trim() })
+      });
+      setData(prev => ({ ...prev, connections: { ...prev.connections, meta: result } }));
+      setShowMetaModal(false);
+      setMetaToken("");
+      setMetaAccountId("");
+      toast.success("Meta Ads conectado!");
+      refreshData();
+    } catch (err) { toast.error(err.message); }
+    setConnectingMeta(false);
   };
 
   const [connectError, setConnectError] = useState(null);
@@ -1985,8 +2007,9 @@ function IntegrationsPage() {
       if (wasConnected) {
         const result = await api.disconnect(key);
         setData(prev => ({ ...prev, connections: { ...prev.connections, [key]: result } }));
+      } else if (key === "meta") {
+        setShowMetaModal(true);
       } else if (OAUTH_PLATFORMS.includes(key)) {
-        // OAuth platforms — open popup for real auth
         startOAuth(key);
       } else {
         // Non-OAuth platforms (crm, webhook, api)
@@ -2007,6 +2030,30 @@ function IntegrationsPage() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {showMetaModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div style={{ background: t.bgCard, borderRadius: 16, padding: 28, width: "100%", maxWidth: 480, border: `1px solid ${t.border}` }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: t.text, marginBottom: 6 }}>Conectar Meta Ads</div>
+            <div style={{ fontSize: 13, color: t.textSecondary, marginBottom: 20 }}>Cole o Access Token gerado em <b>developers.facebook.com → Casos de uso → Ferramentas</b></div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, color: t.textMuted, display: "block", marginBottom: 4 }}>Access Token *</label>
+              <textarea value={metaToken} onChange={e => setMetaToken(e.target.value)} placeholder="EAAxxxxxxxx..." rows={3}
+                style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: `1px solid ${t.border}`, background: t.bgInput, color: t.text, fontSize: 13, fontFamily: "monospace", resize: "vertical", boxSizing: "border-box" }} />
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontSize: 12, color: t.textMuted, display: "block", marginBottom: 4 }}>Ad Account ID (opcional)</label>
+              <input value={metaAccountId} onChange={e => setMetaAccountId(e.target.value)} placeholder="123456789 (sem act_)"
+                style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: `1px solid ${t.border}`, background: t.bgInput, color: t.text, fontSize: 13, boxSizing: "border-box" }} />
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <Btn variant="primary" size="md" onClick={connectMetaWithToken} style={{ flex: 1 }}>
+                {connectingMeta ? "Conectando..." : "Conectar"}
+              </Btn>
+              <Btn variant="secondary" size="md" onClick={() => setShowMetaModal(false)}>Cancelar</Btn>
+            </div>
+          </div>
+        </div>
+      )}
       <div>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: t.text, margin: 0 }}>Integrações</h1>
         <p style={{ fontSize: 13, color: t.textSecondary, margin: 0 }}>Conecte suas ferramentas e plataformas</p>
