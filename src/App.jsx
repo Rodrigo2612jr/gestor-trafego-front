@@ -718,10 +718,10 @@ function OverviewPage({ onNavigate }) {
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 14 }} className="main-grid">
           <div style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 14, padding: 22, minHeight: 300, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <div style={{ textAlign: "center", color: t.textMuted }}><div style={{ fontSize: 32, marginBottom: 8 }}>📊</div><div style={{ fontSize: 13 }}>Aguardando dados de performance...</div></div>
+            <div style={{ textAlign: "center", color: t.textMuted }}><div style={{ fontSize: 32, marginBottom: 8 }}>📊</div><div style={{ fontSize: 13 }}>Sem dados de performance ainda</div><div style={{ fontSize: 12, marginTop: 6, color: t.textMuted }}>Crie campanhas ou aguarde a sincronização</div></div>
           </div>
           <div style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 14, padding: 22, minHeight: 300, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <div style={{ textAlign: "center", color: t.textMuted }}><div style={{ fontSize: 32, marginBottom: 8 }}>🔄</div><div style={{ fontSize: 13 }}>Sincronizando dados...</div></div>
+            <div style={{ textAlign: "center", color: t.textMuted }}><div style={{ fontSize: 32, marginBottom: 8 }}>🥧</div><div style={{ fontSize: 13 }}>Sem distribuição de verba ainda</div><div style={{ fontSize: 12, marginTop: 6, color: t.textMuted }}>Dados aparecerão quando houver campanhas ativas</div></div>
           </div>
         </div>
       )}
