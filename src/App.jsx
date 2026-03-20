@@ -93,6 +93,7 @@ const api = {
   getCreatives: () => api.request("/creatives"),
   createCreative: (data) => api.request("/creatives", { method: "POST", body: JSON.stringify(data) }),
   deleteCreative: (id) => api.request(`/creatives/${id}`, { method: "DELETE" }),
+  migrateCreativeImage: (id, image_url) => api.request(`/creatives/${id}/image`, { method: "PATCH", body: JSON.stringify({ image_url }) }),
 
   // Audiences
   getAudiences: () => api.request("/audiences"),
@@ -848,16 +849,27 @@ function ChatPage() {
 
         setTyping(true);
         try {
-          // Full voice chat: audio → transcription + AI response + audio back
-          const result = await api.voiceChat(audioBlob);
-          setMessages(prev => [...prev,
-            { role: "user", text: result.userText },
-            { role: "assistant", text: result.aiText, audio: result.audio }
-          ]);
-          // Auto-play the response
-          if (result.audio) {
-            playBase64Audio(result.audio);
-          }
+          // Step 1: transcribe audio (request separado → evita timeout no Vercel)
+          const { text: userText } = await api.transcribeAudio(audioBlob);
+          if (!userText?.trim()) { setTyping(false); return; }
+
+          // Step 2: mostra mensagem do usuário + resposta do chat
+          setMessages(prev => [...prev, { role: "user", text: userText }]);
+          const chatResp = await api.sendMessage(userText);
+          const aiText = chatResp.text;
+          setMessages(prev => [...prev, { role: "assistant", text: aiText }]);
+
+          // Step 3: TTS — reproduz resposta (falha silenciosa se timeout)
+          try {
+            const ttsBlob = await api.speakText(aiText);
+            const url = URL.createObjectURL(ttsBlob);
+            if (currentAudioRef.current) currentAudioRef.current.pause();
+            const audio = new Audio(url);
+            currentAudioRef.current = audio;
+            audio.play();
+            audio.onended = () => { URL.revokeObjectURL(url); currentAudioRef.current = null; };
+          } catch { /* TTS opcional, não bloqueia */ }
+
         } catch (err) {
           setMessages(prev => [...prev, { role: "assistant", text: "Erro no chat por voz: " + err.message }]);
         }
@@ -1622,6 +1634,32 @@ function CreativesPage({ onNavigate }) {
   const [uploading, setUploading] = useState(false);
   const [activeCategory, setActiveCategory] = useState("Todos");
   const fileInputRef = useRef(null);
+
+  // Auto-migrate old file-path images to base64
+  useEffect(() => {
+    const oldCreatives = creatives.filter(c => c.image_url && c.image_url.startsWith("/api/images/file/"));
+    if (oldCreatives.length === 0) return;
+    oldCreatives.forEach(async (c) => {
+      try {
+        const fullUrl = resolveImageUrl(c.image_url);
+        const resp = await fetch(fullUrl);
+        if (!resp.ok) return;
+        const blob = await resp.blob();
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+          const base64 = reader.result;
+          try {
+            await api.migrateCreativeImage(c.id, base64);
+            setData(prev => ({
+              ...prev,
+              creatives: (prev.creatives || []).map(x => x.id === c.id ? { ...x, image_url: base64 } : x),
+            }));
+          } catch {}
+        };
+        reader.readAsDataURL(blob);
+      } catch {}
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleGenerateImage = async () => {
     if (!aiPrompt.trim()) return;
