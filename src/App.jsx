@@ -2653,6 +2653,13 @@ function AppInner() {
     if (authed && !authLoading) refreshData();
   }, [authed, authLoading, refreshData]);
 
+  // ─── Auto-refresh a cada 60 segundos ───
+  useEffect(() => {
+    if (!authed || authLoading) return;
+    const interval = setInterval(() => refreshData(), 60000);
+    return () => clearInterval(interval);
+  }, [authed, authLoading, refreshData]);
+
   // ─── Logout listener ───
   useEffect(() => {
     const handler = () => { setAuthed(false); setData(defaultDataState); };
