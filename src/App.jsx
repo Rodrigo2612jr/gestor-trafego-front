@@ -673,11 +673,11 @@ function OverviewPage({ onNavigate }) {
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           {periodLoading && <div style={{ width: 16, height: 16, border: `2px solid ${t.border}`, borderTopColor: t.accent, borderRadius: "50%", animation: "spin 0.6s linear infinite" }} />}
-          {["7d", "14d", "30d", "90d"].map(p => (
-            <button key={p} onClick={() => handlePeriodChange(p)} style={{
-              padding: "6px 14px", borderRadius: 8, border: `1px solid ${period === p ? t.accent : t.border}`,
-              background: period === p ? `${t.accent}20` : "transparent", color: period === p ? t.accent : t.textSecondary, fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: "inherit",
-            }}>{p}</button>
+          {[{ key: "today", label: "Hoje" }, { key: "7d", label: "7d" }, { key: "14d", label: "14d" }, { key: "30d", label: "30d" }, { key: "90d", label: "90d" }].map(({ key, label }) => (
+            <button key={key} onClick={() => handlePeriodChange(key)} style={{
+              padding: "6px 14px", borderRadius: 8, border: `1px solid ${period === key ? t.accent : t.border}`,
+              background: period === key ? `${t.accent}20` : "transparent", color: period === key ? t.accent : t.textSecondary, fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: "inherit",
+            }}>{label}</button>
           ))}
         </div>
       </div>
