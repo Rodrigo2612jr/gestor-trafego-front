@@ -38,7 +38,7 @@ class ErrorBoundary extends Component {
 /* ═══════════════════════════════════════════════════════════════
    API LAYER — Comunicação com o backend
    ═══════════════════════════════════════════════════════════════ */
-const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:3001") + "/api";
+const API_BASE = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL + "/api" : "/api";
 
 // Resolve image URLs — local uploads come as /api/... relative paths
 function resolveImageUrl(url) {
@@ -145,11 +145,12 @@ const api = {
   getAICreatives: () => api.request("/images/creatives"),
 
   // Image upload
-  async uploadImages(files, name, channel) {
+  async uploadImages(files, name, channel, category) {
     const formData = new FormData();
     for (const f of files) formData.append("images", f);
     if (name) formData.append("name", name);
     if (channel) formData.append("channel", channel);
+    if (category) formData.append("category", category);
     const headers = {};
     if (api._token) headers["Authorization"] = `Bearer ${api._token}`;
     const res = await fetch(`${API_BASE}/images/upload`, { method: "POST", headers, body: formData });
@@ -281,8 +282,9 @@ function ConfirmProvider({ children }) {
 function MarkdownText({ text, style = {} }) {
   const { theme: t } = useData();
   if (!text) return null;
+  const safeText = typeof text === "string" ? text : (typeof text?.choices?.[0]?.message?.content === "string" ? text.choices[0].message.content : (JSON.stringify(text) || ""));
 
-  const parts = text.split(/(\*\*[^*]+\*\*|\•\s[^\n]+|\n)/g);
+  const parts = safeText.split(/(\*\*[^*]+\*\*|\•\s[^\n]+|\n)/g);
   return (
     <span style={style}>
       {parts.map((part, i) => {
@@ -761,6 +763,8 @@ function ChatPage() {
   const [playingId, setPlayingId] = useState(null);
   const [attachedImage, setAttachedImage] = useState(null); // { file, previewUrl, uploadedUrl }
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [showLibraryPicker, setShowLibraryPicker] = useState(false);
+  const [libPickerCategory, setLibPickerCategory] = useState("Todos");
   const chatRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -937,7 +941,7 @@ function ChatPage() {
                   padding: "12px 16px", borderRadius: msg.role === "user" ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
                   background: msg.role === "user" ? t.accent : t.bgInput, color: msg.role === "user" ? "#fff" : t.text,
                   fontSize: 13.5, lineHeight: 1.6, whiteSpace: "pre-wrap",
-                }}>{msg.role === "assistant" ? <MarkdownText text={msg.text} /> : msg.text}</div>
+                }}>{msg.role === "assistant" ? <MarkdownText text={msg.text} /> : (typeof msg.text === "string" ? msg.text : JSON.stringify(msg.text))}</div>
                 {msg.images && msg.images.length > 0 && (
                   <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
                     {msg.images.map((url, imgIdx) => (
@@ -996,6 +1000,11 @@ function ChatPage() {
               style={{ width: 44, height: 44, borderRadius: 12, border: attachedImage ? `2px solid ${t.accentGreen}` : `1px solid ${t.border}`, background: attachedImage ? "rgba(34,197,94,0.15)" : t.bgInput, color: attachedImage ? t.accentGreen : t.textSecondary, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, opacity: (recording || uploadingImage) ? 0.5 : 1 }}>
               📎
             </button>
+            <button onClick={() => setShowLibraryPicker(true)} disabled={recording || uploadingImage}
+              title="Escolher da biblioteca de criativos"
+              style={{ width: 44, height: 44, borderRadius: 12, border: `1px solid ${t.border}`, background: t.bgInput, color: t.textSecondary, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, opacity: (recording || uploadingImage) ? 0.5 : 1 }}>
+              🖼️
+            </button>
             <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && !uploadingImage && handleSend()}
               placeholder={recording ? "🔴 Gravando... clique em parar quando terminar" : attachedImage ? "Descreva como usar a foto (ou manda direto)..." : "Pergunte ao seu Gestor de Tráfego AI..."}
               disabled={recording}
@@ -1023,6 +1032,59 @@ function ChatPage() {
           ))}
         </div>
       </div>
+
+    {/* Library Picker Modal */}
+    {showLibraryPicker && (
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(4px)" }} onClick={() => setShowLibraryPicker(false)}>
+        <div onClick={e => e.stopPropagation()} style={{ width: "90%", maxWidth: 640, background: t.bgModal, border: `1px solid ${t.border}`, borderRadius: 18, boxShadow: t.shadowLg, maxHeight: "85vh", overflow: "auto" }}>
+          <div style={{ padding: "20px 24px", borderBottom: `1px solid ${t.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <div style={{ fontSize: 17, fontWeight: 700, color: t.text }}>🖼️ Biblioteca de Criativos</div>
+              <div style={{ fontSize: 12, color: t.textMuted }}>Clique em um criativo para enviar ao Leo</div>
+            </div>
+            <button onClick={() => setShowLibraryPicker(false)} style={{ background: "none", border: "none", color: t.textMuted, cursor: "pointer", fontSize: 18 }}>{I.close}</button>
+          </div>
+          {(() => {
+            const libCreatives = (data.creatives || []).filter(c => c.image_url);
+            const libCats = ["Todos", ...Array.from(new Set(libCreatives.filter(c => c.category).map(c => c.category)))];
+            const libFiltered = libPickerCategory === "Todos" ? libCreatives : libCreatives.filter(c => c.category === libPickerCategory);
+            return (
+              <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
+                {libCats.length > 1 && (
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {libCats.map(cat => (
+                      <button key={cat} onClick={() => setLibPickerCategory(cat)} style={{ padding: "5px 12px", borderRadius: 20, border: `1px solid ${libPickerCategory === cat ? t.accent : t.border}`, background: libPickerCategory === cat ? `${t.accent}20` : "transparent", color: libPickerCategory === cat ? t.accent : t.textSecondary, fontSize: 12, fontWeight: libPickerCategory === cat ? 600 : 400, cursor: "pointer", fontFamily: "inherit" }}>
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {libFiltered.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: 40, color: t.textMuted, fontSize: 13 }}>
+                    Nenhuma imagem na biblioteca ainda.<br />Faça upload na página de Criativos.
+                  </div>
+                ) : (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10 }}>
+                    {libFiltered.map(c => (
+                      <div key={c.id} onClick={() => {
+                        setAttachedImage({ file: null, previewUrl: resolveImageUrl(c.image_url), uploadedUrl: c.image_url });
+                        setShowLibraryPicker(false);
+                      }} style={{ cursor: "pointer", borderRadius: 10, overflow: "hidden", border: `2px solid ${t.border}`, background: t.bgCard, transition: "border-color 0.15s" }}
+                        onMouseEnter={e => e.currentTarget.style.borderColor = t.accent}
+                        onMouseLeave={e => e.currentTarget.style.borderColor = t.border}>
+                        <img src={resolveImageUrl(c.image_url)} alt={c.name} style={{ width: "100%", height: 120, objectFit: "cover", display: "block" }} />
+                        <div style={{ padding: "6px 8px 2px", fontSize: 11, color: t.text, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.name}</div>
+                        {c.category && <div style={{ padding: "0 8px 6px", fontSize: 10, color: t.accent }}>📁 {c.category}</div>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+      </div>
+    )}
     </div>
   );
 }
@@ -1216,12 +1278,22 @@ function CampaignsPage({ onNavigate }) {
     setAiAnalysisLoading(true);
     setAiAnalysisText("");
     try {
+      const objective = campaign.objective || "";
+      const isEngagement = /engaj|engagem|awareness|alcance|reach|video|view|tráfego|trafego|reconhec/i.test(objective);
+      const isConversion = /conver|venda|compra|lead|purchase|sales/i.test(objective);
+      const objectiveContext = isEngagement
+        ? `ATENÇÃO: Esta é uma campanha de ${objective || "ENGAJAMENTO/TOPO DE FUNIL"}. NÃO avalie por ROAS ou conversões — essas métricas NÃO são o objetivo dela. Avalie por: CTR (bom acima de 2%), custo por engajamento, crescimento de público aquecido, visitas ao perfil, impacto no remarketing e qualidade da audiência gerada. Um ROAS 0x aqui é ESPERADO e normal.`
+        : isConversion
+        ? `Esta é uma campanha de CONVERSÃO/VENDA. Avalie principalmente por ROAS (meta: acima de 3x), CPA vs ticket médio e taxa de conversão.`
+        : `Objetivo declarado: ${objective || "não informado"}. Adapte os critérios de avaliação ao objetivo real da campanha.`;
       const response = await api.sendMessage(
         `Analise esta campanha em detalhes e dê recomendações de otimização:\n\n` +
         `Nome: ${campaign.name}\nCanal: ${campaign.channel}\nStatus: ${campaign.status}\n` +
+        `Objetivo: ${objective || "não informado"}\n` +
         `Orçamento: ${campaign.budget || "-"}\nGasto: ${campaign.spend || "-"}\n` +
         `Conversões: ${campaign.conv || 0}\nCPA: ${campaign.cpa || "-"}\nROAS: ${campaign.roas || "-"}\nCTR: ${campaign.ctr || "-"}\n\n` +
-        `Dê uma análise completa com: 1) Diagnóstico 2) Pontos fortes 3) Problemas 4) Recomendações acionáveis 5) Score de 0-100`
+        `${objectiveContext}\n\n` +
+        `Dê uma análise completa com: 1) Diagnóstico (considerando o objetivo real) 2) Pontos fortes 3) O que melhorar 4) Recomendações acionáveis 5) Score de 0-100 baseado nos KPIs corretos para esse objetivo`
       );
       setAiAnalysisText(response.text);
     } catch {
@@ -1236,9 +1308,10 @@ function CampaignsPage({ onNavigate }) {
     setAiAnalysisLoading(true);
     setAiAnalysisText("");
     try {
-      const summary = campaigns.map(c => `• ${c.name} (${c.channel}) — Status: ${c.status}, ROAS: ${c.roas || "-"}, CPA: ${c.cpa || "-"}, Conv: ${c.conv || 0}`).join("\n");
+      const summary = campaigns.map(c => `• ${c.name} (${c.channel}) — Objetivo: ${c.objective || "não informado"} | Status: ${c.status} | ROAS: ${c.roas || "-"} | CPA: ${c.cpa || "-"} | CTR: ${c.ctr || "-"} | Conv: ${c.conv || 0}`).join("\n");
       const response = await api.sendMessage(
         `Analise todas as minhas campanhas e dê um diagnóstico geral com recomendações:\n\n${summary}\n\n` +
+        `IMPORTANTE: Avalie cada campanha pelos KPIs corretos para seu OBJETIVO. Campanhas de engajamento/topo/awareness não devem ser avaliadas por ROAS — o critério é CTR, custo por engajamento e público aquecido gerado. Só cobrar ROAS e conversão de campanhas com objetivo de venda/conversão.\n\n` +
         `Inclua: 1) Visão geral do portfolio 2) Campanhas para escalar 3) Campanhas para otimizar 4) Campanhas para pausar 5) Próximos passos`
       );
       setAiAnalysisText(response.text);
@@ -1545,7 +1618,9 @@ function CreativesPage({ onNavigate }) {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadFiles, setUploadFiles] = useState([]);
   const [uploadName, setUploadName] = useState("");
+  const [uploadCategory, setUploadCategory] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [activeCategory, setActiveCategory] = useState("Todos");
   const fileInputRef = useRef(null);
 
   const handleGenerateImage = async () => {
@@ -1590,39 +1665,55 @@ function CreativesPage({ onNavigate }) {
           <Btn variant="primary" size="md" onClick={() => setShowAIModal(true)}>{I.imageGen} Gerar Imagem com IA</Btn>
         </div>
       </div>
-      {!anyConn ? (
-        <RequiresConnection sources={["google", "meta"]} onNavigate={onNavigate}><div /></RequiresConnection>
-      ) : creatives.length === 0 ? (
-        <div style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 16 }}>
-          <EmptyState icon={I.emptyBox} title="Nenhum criativo ainda" description="Clique em 'Gerar Imagem com IA' para criar criativos com inteligência artificial." actionLabel="Gerar Criativo com IA" onAction={() => setShowAIModal(true)} />
-        </div>
-      ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}>
-          {creatives.map(c => (
-            <div key={c.id} style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 14, overflow: "hidden" }}>
-              {c.image_url ? (
-                <img src={resolveImageUrl(c.image_url)} alt={c.name} style={{ width: "100%", height: 200, objectFit: "cover" }} />
-              ) : (
-                <div style={{ height: 160, background: t.gradientSubtle, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 48 }}>{c.thumb || "🖼️"}</div>
-              )}
-              <div style={{ padding: 16 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}><span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>{c.name}</span><StatusBadge status={c.status} /></div>
-                {c.ai_generated && <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#a855f720", color: "#a855f7", fontWeight: 600 }}>IA GPT-Image 1.5</span>}
-                <div style={{ display: "flex", gap: 12, fontSize: 12, color: t.textSecondary, marginBottom: 12, marginTop: 4 }}><span>{c.format || c.type}</span><span>{c.channel}</span></div>
-                <div style={{ display: "flex", gap: 6, marginTop: 8 }}><Btn variant="secondary" size="sm" onClick={() => toast.info(`Score IA: ${c.score || "85/100"} • Formato: ${c.format || c.type} • Canal: ${c.channel}`)}>{I.sparkle} Analisar</Btn><Btn variant="danger" size="sm" onClick={() => handleDelete(c.id)}>Excluir</Btn></div>
+      {(() => {
+        const categories = ["Todos", ...Array.from(new Set(creatives.filter(c => c.category).map(c => c.category)))];
+        const filtered = activeCategory === "Todos" ? creatives : creatives.filter(c => c.category === activeCategory);
+        return (
+          <>
+            {creatives.length > 0 && categories.length > 1 && (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {categories.map(cat => (
+                  <button key={cat} onClick={() => setActiveCategory(cat)} style={{ padding: "6px 14px", borderRadius: 20, border: `1px solid ${activeCategory === cat ? t.accent : t.border}`, background: activeCategory === cat ? `${t.accent}20` : "transparent", color: activeCategory === cat ? t.accent : t.textSecondary, fontSize: 12, fontWeight: activeCategory === cat ? 600 : 400, cursor: "pointer", fontFamily: "inherit" }}>
+                    {cat} {cat !== "Todos" && <span style={{ opacity: 0.6 }}>({creatives.filter(c => c.category === cat).length})</span>}
+                  </button>
+                ))}
               </div>
-            </div>
-          ))}
-        </div>
-      )}
+            )}
+            {filtered.length === 0 ? (
+              <div style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 16 }}>
+                <EmptyState icon={I.emptyBox} title="Nenhum criativo ainda" description="Clique em 'Upload Imagens' ou 'Gerar Imagem com IA' para adicionar criativos." actionLabel="Upload Imagens" onAction={() => setShowUploadModal(true)} />
+              </div>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}>
+                {filtered.map(c => (
+                  <div key={c.id} style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 14, overflow: "hidden" }}>
+                    {c.image_url ? (
+                      <img src={resolveImageUrl(c.image_url)} alt={c.name} style={{ width: "100%", height: 200, objectFit: "cover" }} />
+                    ) : (
+                      <div style={{ height: 160, background: t.gradientSubtle, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 48 }}>{c.thumb || "🖼️"}</div>
+                    )}
+                    <div style={{ padding: 16 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}><span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>{c.name}</span><StatusBadge status={c.status} /></div>
+                      {c.category && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: `${t.accent}20`, color: t.accent, fontWeight: 600, display: "inline-block", marginBottom: 4 }}>📁 {c.category}</span>}
+                      {c.ai_generated && <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#a855f720", color: "#a855f7", fontWeight: 600, marginLeft: c.category ? 6 : 0 }}>IA GPT-Image 1.5</span>}
+                      <div style={{ display: "flex", gap: 12, fontSize: 12, color: t.textSecondary, marginBottom: 12, marginTop: 6 }}><span>{c.format || c.type}</span><span>{c.channel}</span></div>
+                      <div style={{ display: "flex", gap: 6, marginTop: 8 }}><Btn variant="secondary" size="sm" onClick={() => toast.info(`Score IA: ${c.score || "85/100"} • Formato: ${c.format || c.type} • Canal: ${c.channel}`)}>{I.sparkle} Analisar</Btn><Btn variant="danger" size="sm" onClick={() => handleDelete(c.id)}>Excluir</Btn></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        );
+      })()}
 
       {/* Upload Images Modal */}
       {showUploadModal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(4px)" }} onClick={() => { setShowUploadModal(false); setUploadFiles([]); setUploadName(""); }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(4px)" }} onClick={() => { setShowUploadModal(false); setUploadFiles([]); setUploadName(""); setUploadCategory(""); }}>
           <div onClick={e => e.stopPropagation()} style={{ width: "90%", maxWidth: 520, background: t.bgModal, border: `1px solid ${t.border}`, borderRadius: 18, boxShadow: t.shadowLg, maxHeight: "85vh", overflow: "auto" }}>
             <div style={{ padding: "20px 24px", borderBottom: `1px solid ${t.border}`, display: "flex", justifyContent: "space-between" }}>
               <div><div style={{ fontSize: 17, fontWeight: 700, color: t.text }}>📤 Upload de Imagens</div><div style={{ fontSize: 12, color: t.textMuted }}>Envie suas próprias fotos para usar nos anúncios</div></div>
-              <button onClick={() => { setShowUploadModal(false); setUploadFiles([]); setUploadName(""); }} style={{ background: "none", border: "none", color: t.textMuted, cursor: "pointer" }}>{I.close}</button>
+              <button onClick={() => { setShowUploadModal(false); setUploadFiles([]); setUploadName(""); setUploadCategory(""); }} style={{ background: "none", border: "none", color: t.textMuted, cursor: "pointer" }}>{I.close}</button>
             </div>
             <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
               <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={e => setUploadFiles(Array.from(e.target.files))} style={{ display: "none" }} />
@@ -1641,14 +1732,25 @@ function CreativesPage({ onNavigate }) {
                 </div>
               )}
               <input value={uploadName} onChange={e => setUploadName(e.target.value)} placeholder="Nome do criativo (opcional)" style={inputStyle} />
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <label style={{ fontSize: 12, color: t.textSecondary, fontWeight: 600 }}>📁 Categoria (opcional)</label>
+                <input value={uploadCategory} onChange={e => setUploadCategory(e.target.value)} placeholder="Ex: Empório Pascoto - Grupo VIP, Colágeno, Stories..." style={inputStyle} list="category-suggestions" />
+                <datalist id="category-suggestions">
+                  {Array.from(new Set(creatives.filter(c => c.category).map(c => c.category))).map(cat => (
+                    <option key={cat} value={cat} />
+                  ))}
+                </datalist>
+                <span style={{ fontSize: 11, color: t.textMuted }}>Agrupa os criativos na biblioteca para facilitar a organização</span>
+              </div>
               <Btn variant="primary" disabled={uploading || uploadFiles.length === 0} onClick={async () => {
                 setUploading(true);
                 try {
-                  const result = await api.uploadImages(uploadFiles, uploadName);
+                  const result = await api.uploadImages(uploadFiles, uploadName, null, uploadCategory);
                   const newCreatives = result.creatives || [result.creative];
                   setData(prev => ({ ...prev, creatives: [...newCreatives, ...(prev.creatives || [])] }));
+                  if (uploadCategory) setActiveCategory(uploadCategory);
                   toast.success(`${newCreatives.length} imagem(ns) enviada(s)!`);
-                  setShowUploadModal(false); setUploadFiles([]); setUploadName("");
+                  setShowUploadModal(false); setUploadFiles([]); setUploadName(""); setUploadCategory("");
                 } catch (err) { toast.error(err.message); }
                 setUploading(false);
               }}>
