@@ -2667,6 +2667,28 @@ function AppInner() {
     return () => window.removeEventListener("auth:logout", handler);
   }, []);
 
+  // ─── Deploy watcher: mostra popup quando novo deploy é detectado ───
+  const toast = useToast();
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const res = await fetch(`${api._base}/version`);
+        if (!res.ok) return;
+        const info = await res.json();
+        if (!info.sha || info.sha === "local") return;
+        const lastSha = localStorage.getItem("lastDeploySha");
+        if (lastSha && lastSha !== info.sha) {
+          const msg = info.message ? `Deploy feito: ${info.message}` : "Novo deploy publicado";
+          toast.success(msg, 8000);
+        }
+        localStorage.setItem("lastDeploySha", info.sha);
+      } catch { /* ignora erros de rede */ }
+    };
+    check();
+    const interval = setInterval(check, 20000);
+    return () => clearInterval(interval);
+  }, [toast]);
+
   const handleLogin = (user) => {
     setData(prev => ({ ...prev, user }));
     setAuthed(true);
