@@ -2415,7 +2415,7 @@ function SettingsPage({ themeMode, setThemeMode }) {
   const { data, theme: t, setData } = useData();
   const toast = useToast();
   const [activeTab, setActiveTab] = useState("profile");
-  const [profileForm, setProfileForm] = useState({ name: data.user?.name || "", email: data.user?.email || "", phone: data.user?.phone || "", role: data.user?.role || "" });
+  const [profileForm, setProfileForm] = useState({ name: data.user?.name || "", email: data.user?.email || "", phone: data.user?.phone || "", role: data.user?.role || "", website_url: data.user?.website_url || "" });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const tabs = [{ id: "profile", label: "Perfil" }, { id: "apikeys", label: "🔑 Credenciais API" }, { id: "company", label: "Empresa" }, { id: "appearance", label: "Aparência" }, { id: "notifications", label: "Notificações" }, { id: "security", label: "Segurança" }];
@@ -2457,7 +2457,7 @@ function SettingsPage({ themeMode, setThemeMode }) {
         ) : activeTab === "profile" ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: 480 }}>
             <div style={{ fontSize: 14, color: t.textSecondary, marginBottom: 8 }}>Configure seu perfil para personalizar a experiência.</div>
-            {[["Nome", "name"], ["Email", "email"], ["Telefone", "phone"], ["Cargo", "role"]].map(([label, key]) => (
+            {[["Nome", "name"], ["Email", "email"], ["Telefone", "phone"], ["Cargo", "role"], ["Site / URL padrão dos anúncios", "website_url"]].map(([label, key]) => (
               <div key={key}>
                 <label style={{ fontSize: 12, color: t.textMuted, marginBottom: 4, display: "block" }}>{label}</label>
                 <input value={profileForm[key]} onChange={e => setProfileForm(p => ({ ...p, [key]: e.target.value }))} placeholder={`Seu ${label.toLowerCase()}`} style={inputStyle} />
