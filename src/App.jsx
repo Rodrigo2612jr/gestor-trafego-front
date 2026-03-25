@@ -2597,6 +2597,7 @@ function AppInner() {
   const [authLoading, setAuthLoading] = useState(!!api._token);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
+  const [deployModal, setDeployModal] = useState(null); // { message, sha }
   const t = themes[themeMode];
 
   // Compute alert count from real data
@@ -2667,19 +2668,18 @@ function AppInner() {
     return () => window.removeEventListener("auth:logout", handler);
   }, []);
 
-  // ─── Deploy watcher: mostra popup quando novo deploy é detectado ───
-  const toast = useToast();
+  // ─── Deploy watcher: mostra modal central quando novo deploy é detectado ───
   useEffect(() => {
     const check = async () => {
       try {
-        const res = await fetch(`${api._base}/version`);
+        const res = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:3001"}/api/version`);
         if (!res.ok) return;
         const info = await res.json();
         if (!info.sha || info.sha === "local") return;
         const lastSha = localStorage.getItem("lastDeploySha");
-        if (lastSha && lastSha !== info.sha) {
-          const msg = info.message ? `Deploy feito: ${info.message}` : "Novo deploy publicado";
-          toast.success(msg, 8000);
+        const isNew = lastSha !== info.sha;
+        if (isNew) {
+          setDeployModal({ message: info.message || "", sha: info.sha });
         }
         localStorage.setItem("lastDeploySha", info.sha);
       } catch { /* ignora erros de rede */ }
@@ -2687,7 +2687,7 @@ function AppInner() {
     check();
     const interval = setInterval(check, 20000);
     return () => clearInterval(interval);
-  }, [toast]);
+  }, []);
 
   const handleLogin = (user) => {
     setData(prev => ({ ...prev, user }));
@@ -2762,6 +2762,30 @@ function AppInner() {
           @media (max-width: 768px) { .sidebar-desktop { display: none !important; } .main-grid, .chat-grid { grid-template-columns: 1fr !important; } .chat-panel { display: none !important; } .hide-sm { display: none !important; } }
           @media (min-width: 769px) { .mobile-overlay { display: none !important; } }
         `}</style>
+
+        {/* DEPLOY MODAL */}
+        {deployModal && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={() => setDeployModal(null)}>
+            <div onClick={e => e.stopPropagation()} style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 16, padding: "32px 36px", maxWidth: 420, width: "90%", position: "relative", boxShadow: "0 24px 64px rgba(0,0,0,0.4)", fontFamily: "inherit" }}>
+              <button onClick={() => setDeployModal(null)} style={{ position: "absolute", top: 14, right: 14, background: "none", border: "none", cursor: "pointer", color: t.textMuted, fontSize: 20, lineHeight: 1, padding: 4 }}>✕</button>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+                <div style={{ width: 40, height: 40, borderRadius: 10, background: "linear-gradient(135deg,#22c55e,#16a34a)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>🚀</div>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Nova atualização publicada</div>
+                  <div style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>Deploy concluído com sucesso</div>
+                </div>
+              </div>
+              {deployModal.message && (
+                <div style={{ background: t.bgHover || t.bg, borderRadius: 8, padding: "10px 14px", fontSize: 13, color: t.textSecondary, lineHeight: 1.5 }}>
+                  {deployModal.message}
+                </div>
+              )}
+              <button onClick={() => setDeployModal(null)} style={{ marginTop: 20, width: "100%", padding: "10px", borderRadius: 8, background: t.gradient, border: "none", color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                Entendido
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* MOBILE MENU */}
         {mobileMenuOpen && (
