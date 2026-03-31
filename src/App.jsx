@@ -81,10 +81,17 @@ const api = {
   disconnect: (platform) => api.request(`/connections/${platform}/disconnect`, { method: "POST" }),
 
   // Dashboard
-  getDashboard: (period) => api.request(`/dashboard${period ? `?period=${period}` : ""}`),
+  getDashboard: (period, campaignId, status) => {
+    const p = new URLSearchParams();
+    if (period) p.set("period", period);
+    if (campaignId) p.set("campaign_id", campaignId);
+    if (status && status !== "ALL") p.set("status", status);
+    const q = p.toString();
+    return api.request(`/dashboard${q ? `?${q}` : ""}`);
+  },
 
   // Campaigns
-  getCampaigns: () => api.request("/campaigns"),
+  getCampaigns: (status) => api.request(`/campaigns${status && status !== "ALL" ? `?status=${status}` : ""}`),  
   createCampaign: (data) => api.request("/campaigns", { method: "POST", body: JSON.stringify(data) }),
   updateCampaign: (id, data) => api.request(`/campaigns/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteCampaign: (id) => api.request(`/campaigns/${id}`, { method: "DELETE" }),
@@ -445,6 +452,14 @@ function Btn({ children, variant = "primary", size = "md", onClick, style = {} }
 }
 
 function StatusBadge({ status }) {
+  const META_NORM = {
+    "ACTIVE": "Ativa", "active": "Ativa",
+    "PAUSED": "Pausada", "paused": "Pausada", "CAMPAIGN_PAUSED": "Pausada",
+    "WITH_ISSUES": "Limitada", "IN_PROCESS": "Aprendizado",
+    "LEARNING": "Aprendizado", "LEARNING_LIMITED": "Limitada",
+    "DELETED": "Excluída", "ARCHIVED": "Arquivada",
+  };
+  const label = META_NORM[status] || status;
   const colors = {
     "Ativa": { bg: "rgba(34,197,94,0.15)", c: "#22c55e" }, "Escalando": { bg: "rgba(99,102,241,0.15)", c: "#6366f1" },
     "Aprendizado": { bg: "rgba(234,179,8,0.15)", c: "#eab308" }, "Pausada": { bg: "rgba(139,143,163,0.15)", c: "#8b8fa3" },
@@ -452,10 +467,11 @@ function StatusBadge({ status }) {
     "Fadiga": { bg: "rgba(249,115,22,0.15)", c: "#f97316" }, "Ativo": { bg: "rgba(34,197,94,0.15)", c: "#22c55e" },
     "Pausado": { bg: "rgba(139,143,163,0.15)", c: "#8b8fa3" }, "Conectado": { bg: "rgba(34,197,94,0.15)", c: "#22c55e" },
     "Desconectado": { bg: "rgba(139,143,163,0.15)", c: "#8b8fa3" }, "Pendente": { bg: "rgba(234,179,8,0.15)", c: "#eab308" },
-    "Pronto": { bg: "rgba(34,197,94,0.15)", c: "#22c55e" },
+    "Pronto": { bg: "rgba(34,197,94,0.15)", c: "#22c55e" }, "Excluída": { bg: "rgba(139,143,163,0.15)", c: "#8b8fa3" },
+    "Arquivada": { bg: "rgba(139,143,163,0.15)", c: "#8b8fa3" },
   };
-  const cl = colors[status] || colors["Ativa"];
-  return <span style={{ padding: "4px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: cl.bg, color: cl.c, whiteSpace: "nowrap" }}>{status}</span>;
+  const cl = colors[label] || { bg: "rgba(139,143,163,0.15)", c: "#8b8fa3" };
+  return <span style={{ padding: "4px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: cl.bg, color: cl.c, whiteSpace: "nowrap" }}>{label}</span>;
 }
 
 /* ─── SKELETON LOADER ─── */
@@ -573,17 +589,38 @@ function OverviewPage({ onNavigate }) {
   const anyConnected = data.connections?.google?.connected || data.connections?.meta?.connected;
   const [period, setPeriod] = useState("30d");
   const [periodLoading, setPeriodLoading] = useState(false);
+  const [campaignFilter, setCampaignFilter] = useState(null);
+  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [campaignsList, setCampaignsList] = useState([]);
+  const [topCampaigns, setTopCampaigns] = useState([]);
 
-  const handlePeriodChange = async (p) => {
-    setPeriod(p);
+  const fetchDashboard = async (p, campId, status) => {
     if (!anyConnected) return;
     setPeriodLoading(true);
     try {
-      const dashboard = await api.getDashboard(p);
+      const params = new URLSearchParams({ period: p });
+      if (campId) params.set("campaign_id", campId);
+      if (status && status !== "ALL") params.set("status", status);
+      const dashboard = await api.request(`/dashboard?${params}`);
       setData(prev => ({ ...prev, kpis: dashboard.kpis, chartData: dashboard.chartData, pieData: dashboard.pieData, insights: dashboard.insights, funnelData: dashboard.funnelData }));
+      if (dashboard.campaignsList?.length) setCampaignsList(dashboard.campaignsList);
+      if (dashboard.topCampaigns?.length) setTopCampaigns(dashboard.topCampaigns);
     } catch {}
     setPeriodLoading(false);
   };
+
+  const handlePeriodChange = (p) => { setPeriod(p); fetchDashboard(p, campaignFilter, statusFilter); };
+  const handleCampaignFilter = (id) => { setCampaignFilter(id || null); fetchDashboard(period, id || null, statusFilter); };
+  const handleStatusFilter = (s) => { setStatusFilter(s); fetchDashboard(period, campaignFilter, s); };
+
+  useEffect(() => {
+    if (anyConnected) {
+      api.request("/dashboard?period=30d").then(d => {
+        if (d.campaignsList?.length) setCampaignsList(d.campaignsList);
+        if (d.topCampaigns?.length) setTopCampaigns(d.topCampaigns);
+      }).catch(() => {});
+    }
+  }, [anyConnected]);
 
   if (!anyConnected) {
     return (
@@ -661,8 +698,6 @@ function OverviewPage({ onNavigate }) {
   const chartData = data.chartData || [];
   const pieData = data.pieData || [];
   const insights = data.insights || [];
-  const alerts = data.alerts || [];
-  const campaigns = data.campaigns || [];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
@@ -671,7 +706,7 @@ function OverviewPage({ onNavigate }) {
           <h1 style={{ fontSize: 24, fontWeight: 700, color: t.text, margin: 0 }}>Visão Geral</h1>
           <p style={{ fontSize: 14, color: t.textSecondary, margin: "4px 0 0" }}>Performance consolidada de todas as campanhas</p>
         </div>
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
           {periodLoading && <div style={{ width: 16, height: 16, border: `2px solid ${t.border}`, borderTopColor: t.accent, borderRadius: "50%", animation: "spin 0.6s linear infinite" }} />}
           {[{ key: "today", label: "Hoje" }, { key: "7d", label: "7d" }, { key: "14d", label: "14d" }, { key: "30d", label: "30d" }, { key: "90d", label: "90d" }].map(({ key, label }) => (
             <button key={key} onClick={() => handlePeriodChange(key)} style={{
@@ -680,6 +715,29 @@ function OverviewPage({ onNavigate }) {
             }}>{label}</button>
           ))}
         </div>
+      </div>
+
+      {/* Campaign and status filters */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <select
+          value={campaignFilter || ""}
+          onChange={e => handleCampaignFilter(e.target.value)}
+          style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${campaignFilter ? t.accent : t.border}`, background: t.bgInput, color: campaignFilter ? t.accent : t.textSecondary, fontSize: 13, cursor: "pointer", fontFamily: "inherit", outline: "none" }}
+        >
+          <option value="">Todas as campanhas</option>
+          {campaignsList.map(c => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
+        {[{ key: "ALL", label: "Todas" }, { key: "ACTIVE", label: "Ativas" }, { key: "PAUSED", label: "Pausadas" }].map(({ key, label }) => (
+          <button key={key} onClick={() => handleStatusFilter(key)} style={{
+            padding: "6px 14px", borderRadius: 8, border: `1px solid ${statusFilter === key ? t.accent : t.border}`,
+            background: statusFilter === key ? `${t.accent}20` : "transparent", color: statusFilter === key ? t.accent : t.textSecondary, fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: "inherit",
+          }}>{label}</button>
+        ))}
+        {(campaignFilter || statusFilter !== "ALL") && (
+          <button onClick={() => { setCampaignFilter(null); setStatusFilter("ALL"); fetchDashboard(period, null, "ALL"); }} style={{ padding: "6px 12px", borderRadius: 8, border: `1px solid ${t.border}`, background: "transparent", color: t.textMuted, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>✕ Limpar</button>
+        )}
       </div>
 
       {kpis.length > 0 ? (
@@ -742,6 +800,38 @@ function OverviewPage({ onNavigate }) {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {topCampaigns.length > 0 && (
+        <div style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 14, overflow: "hidden" }}>
+          <div style={{ padding: "16px 22px", borderBottom: `1px solid ${t.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: t.text }}>Top Campanhas {campaignFilter ? `· ${campaignsList.find(c => c.id === campaignFilter)?.name || ""}` : ""}</div>
+            <button onClick={() => onNavigate("campaigns")} style={{ fontSize: 12, color: t.accent, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}>Ver todas →</button>
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead><tr style={{ borderBottom: `1px solid ${t.border}` }}>
+                {["Campanha", "Gasto", "Impressões", "Cliques", "CTR", "Leads", "CPL", "ROAS"].map(h => (
+                  <th key={h} style={{ padding: "10px 14px", textAlign: "left", color: t.textMuted, fontWeight: 500, fontSize: 12 }}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>{topCampaigns.map((c, i) => (
+                <tr key={i} style={{ borderBottom: `1px solid ${t.border}` }}
+                  onMouseEnter={e => e.currentTarget.style.background = t.bgHover}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                  <td style={{ padding: "10px 14px", color: t.text, fontWeight: 500, maxWidth: 220 }}><div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.campaign_name}</div></td>
+                  <td style={{ padding: "10px 14px", color: t.text }}>{c.spend}</td>
+                  <td style={{ padding: "10px 14px", color: t.textSecondary }}>{c.impressions?.toLocaleString("pt-BR")}</td>
+                  <td style={{ padding: "10px 14px", color: t.textSecondary }}>{c.clicks?.toLocaleString("pt-BR")}</td>
+                  <td style={{ padding: "10px 14px", color: t.textSecondary }}>{c.ctr}</td>
+                  <td style={{ padding: "10px 14px", color: t.text, fontWeight: 600 }}>{c.leads || "—"}</td>
+                  <td style={{ padding: "10px 14px", color: t.text }}>{c.cpl}</td>
+                  <td style={{ padding: "10px 14px", fontWeight: 600, color: parseFloat(c.roas) > 3 ? t.accentGreen : t.accentOrange }}>{c.roas}</td>
+                </tr>
+              ))}</tbody>
+            </table>
           </div>
         </div>
       )}
@@ -1228,17 +1318,35 @@ function CampaignsPage({ onNavigate }) {
   const [aiAnalysisLoading, setAiAnalysisLoading] = useState(false);
   const [step, setStep] = useState(0);
   const [filter, setFilter] = useState("Todos");
+  const [liveCampaigns, setLiveCampaigns] = useState(null);
+  const [liveLoading, setLiveLoading] = useState(false);
   const [newCamp, setNewCamp] = useState({ channel: "", objective: "", audience: "", budget: "", name: "", format: "" });
   const steps = ["Canal", "Objetivo", "Público", "Orçamento", "Criativos", "Copies", "Conversão", "Revisão"];
   const anyConnected = data.connections?.google?.connected || data.connections?.meta?.connected;
-  const allCampaigns = data.campaigns || [];
+
+  const META_NORM = { "ACTIVE": "Ativa", "active": "Ativa", "PAUSED": "Pausada", "paused": "Pausada", "CAMPAIGN_PAUSED": "Pausada", "WITH_ISSUES": "Limitada", "DELETED": "Excluída", "ARCHIVED": "Arquivada" };
+  const normStatus = (s) => META_NORM[s] || s;
+
+  const loadLiveCampaigns = async () => {
+    setLiveLoading(true);
+    try {
+      const camps = await api.getCampaigns();
+      setLiveCampaigns(camps);
+    } catch { setLiveCampaigns(null); }
+    setLiveLoading(false);
+  };
+
+  useEffect(() => { if (anyConnected) loadLiveCampaigns(); }, [anyConnected]);
+
+  const allCampaigns = liveCampaigns ?? data.campaigns ?? [];
   const campaigns = allCampaigns.filter(c => {
+    const ns = normStatus(c.status);
     if (filter === "Todos") return true;
     if (filter === "Google Ads") return c.channel === "Google";
     if (filter === "Meta Ads") return c.channel === "Meta";
-    if (filter === "Ativas") return c.status === "Ativa";
-    if (filter === "Pausadas") return c.status === "Pausada";
-    if (filter === "Limitadas") return c.status === "Limitada";
+    if (filter === "Ativas") return ns === "Ativa";
+    if (filter === "Pausadas") return ns === "Pausada";
+    if (filter === "Limitadas") return ns === "Limitada";
     return true;
   });
 
@@ -1253,13 +1361,15 @@ function CampaignsPage({ onNavigate }) {
   };
 
   const handlePause = async (c) => {
-    const newStatus = c.status === "Pausada" ? "Ativa" : "Pausada";
+    if (c.source === "live" || !c.id) { toast.warning("Para pausar/ativar campanhas do Meta, acesse o Gerenciador de Anúncios."); return; }
+    const newStatus = normStatus(c.status) === "Pausada" ? "Ativa" : "Pausada";
     await api.updateCampaign(c.id, { status: newStatus });
     refreshData();
     toast.info(`Campanha "${c.name}" ${newStatus === "Ativa" ? "ativada" : "pausada"}`);
   };
 
   const handleDelete = async (id) => {
+    if (!id) { toast.warning("Não é possível excluir campanhas do Meta por aqui."); return; }
     const ok = await confirm("Tem certeza que deseja excluir esta campanha? Esta ação não pode ser desfeita.", "Excluir Campanha");
     if (!ok) return;
     await api.deleteCampaign(id);
@@ -1340,9 +1450,11 @@ function CampaignsPage({ onNavigate }) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: t.text, margin: 0 }}>Campanhas</h1>
-          <p style={{ fontSize: 13, color: t.textSecondary, margin: 0 }}>Gestão unificada de todas as campanhas</p>
+          <p style={{ fontSize: 13, color: t.textSecondary, margin: 0 }}>Gestão unificada de todas as campanhas · dados em tempo real</p>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {liveLoading && <div style={{ width: 14, height: 14, border: `2px solid ${t.border}`, borderTopColor: t.accent, borderRadius: "50%", animation: "spin 0.6s linear infinite" }} />}
+          <Btn variant="ghost" size="md" onClick={loadLiveCampaigns} title="Atualizar dados ao vivo">{I.refresh || "↻"} Atualizar</Btn>
           <Btn variant="secondary" size="md" onClick={handleBulkAIAnalysis}>{I.sparkle} Analisar com IA</Btn>
           <Btn variant="primary" size="md" onClick={() => { if (!anyConnected) { onNavigate("integrations"); } else { setShowModal(true); setStep(0); } }}>{I.plus} Nova Campanha</Btn>
         </div>
@@ -1352,7 +1464,12 @@ function CampaignsPage({ onNavigate }) {
         <RequiresConnection sources={["google", "meta"]} onNavigate={onNavigate}>
           <div />
         </RequiresConnection>
-      ) : campaigns.length === 0 ? (
+      ) : liveLoading && !allCampaigns.length ? (
+        <div style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 14, padding: 40, textAlign: "center", color: t.textMuted }}>
+          <div style={{ width: 24, height: 24, border: `2px solid ${t.border}`, borderTopColor: t.accent, borderRadius: "50%", animation: "spin 0.6s linear infinite", margin: "0 auto 12px" }} />
+          Buscando campanhas em tempo real...
+        </div>
+      ) : campaigns.length === 0 && allCampaigns.length === 0 ? (
         <div style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 16 }}>
           <EmptyState
             icon={I.emptyBox}
@@ -1364,7 +1481,7 @@ function CampaignsPage({ onNavigate }) {
         </div>
       ) : (
         <>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             {["Todos", "Google Ads", "Meta Ads", "Ativas", "Pausadas", "Limitadas"].map((f, i) => (
               <button key={i} onClick={() => setFilter(f)} style={{
                 padding: "6px 14px", borderRadius: 8, border: `1px solid ${filter === f ? t.accent : t.border}`,
@@ -1372,29 +1489,31 @@ function CampaignsPage({ onNavigate }) {
                 fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "inherit",
               }}>{f}</button>
             ))}
+            <span style={{ fontSize: 12, color: t.textMuted, marginLeft: 4 }}>{campaigns.length} campanha{campaigns.length !== 1 ? "s" : ""}</span>
           </div>
           <div style={{ background: t.bgCard, border: `1px solid ${t.border}`, borderRadius: 14, overflow: "hidden" }}>
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead><tr style={{ borderBottom: `1px solid ${t.border}` }}>
-                  {["", "Campanha", "Canal", "Status", "Orçamento", "Gasto", "Conv.", "CPA", "ROAS", "Ações"].map(h => (
+                  {["", "Campanha", "Canal", "Status", "Orçamento", "Gasto (30d)", "Leads", "CPL", "CTR", "ROAS", "Ações"].map(h => (
                     <th key={h} style={{ padding: "12px 14px", textAlign: "left", color: t.textMuted, fontWeight: 500, fontSize: 12 }}>{h}</th>
                   ))}
                 </tr></thead>
-                <tbody>{campaigns.map(c => (
-                  <tr key={c.id} style={{ borderBottom: `1px solid ${t.border}` }}
+                <tbody>{campaigns.map((c, ci) => (
+                  <tr key={c.id || c.meta_campaign_id || ci} style={{ borderBottom: `1px solid ${t.border}` }}
                     onMouseEnter={e => e.currentTarget.style.background = t.bgHover}
                     onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                     <td style={{ padding: "12px 14px" }}><input type="checkbox" style={{ accentColor: t.accent }} /></td>
-                    <td style={{ padding: "12px 14px", color: t.text, fontWeight: 500 }}>{c.name}</td>
-                    <td style={{ padding: "12px 14px" }}><span style={{ padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 600, background: c.channel === "Google" ? "#6366f120" : "#22d3ee20", color: c.channel === "Google" ? "#6366f1" : "#22d3ee" }}>{c.channel}</span></td>
+                    <td style={{ padding: "12px 14px", color: t.text, fontWeight: 500, maxWidth: 220 }}><div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div></td>
+                    <td style={{ padding: "12px 14px" }}><span style={{ padding: "3px 8px", borderRadius: 6, fontSize: 11, fontWeight: 600, background: c.channel === "Google" ? "#6366f120" : "#22d3ee20", color: c.channel === "Google" ? "#6366f1" : "#22d3ee" }}>{c.channel || "Meta"}</span></td>
                     <td style={{ padding: "12px 14px" }}><StatusBadge status={c.status} /></td>
-                    <td style={{ padding: "12px 14px", color: t.textSecondary }}>{c.budget}</td>
-                    <td style={{ padding: "12px 14px", color: t.text }}>{c.spend}</td>
-                    <td style={{ padding: "12px 14px", color: t.text, fontWeight: 600 }}>{c.conv}</td>
-                    <td style={{ padding: "12px 14px", color: t.text }}>{c.cpa}</td>
-                    <td style={{ padding: "12px 14px", fontWeight: 600, color: parseFloat(c.roas) > 3 ? t.accentGreen : t.accentOrange }}>{c.roas}</td>
-                    <td style={{ padding: "12px 14px" }}><div style={{ display: "flex", gap: 4 }}><Btn variant="ghost" size="sm" onClick={() => handleAIAnalysis(c)} title="Analisar com IA">{I.sparkle}</Btn><Btn variant="ghost" size="sm" onClick={() => handleEdit(c)} title="Editar">{I.settings}</Btn><Btn variant="ghost" size="sm" onClick={() => handlePause(c)} title={c.status === "Pausada" ? "Ativar" : "Pausar"}>{I.pause}</Btn><Btn variant="ghost" size="sm" onClick={() => handleDelete(c.id)} title="Excluir">{I.close}</Btn></div></td>
+                    <td style={{ padding: "12px 14px", color: t.textSecondary }}>{c.budget || c.daily_budget || c.lifetime_budget || "—"}</td>
+                    <td style={{ padding: "12px 14px", color: t.text }}>{c.spend || "—"}</td>
+                    <td style={{ padding: "12px 14px", color: t.text, fontWeight: 600 }}>{c.leads ?? c.conv ?? "—"}</td>
+                    <td style={{ padding: "12px 14px", color: t.text }}>{c.cpl || c.cpa || "—"}</td>
+                    <td style={{ padding: "12px 14px", color: t.textSecondary }}>{c.ctr || "—"}</td>
+                    <td style={{ padding: "12px 14px", fontWeight: 600, color: parseFloat(c.roas) > 3 ? t.accentGreen : t.accentOrange }}>{c.roas || "—"}</td>
+                    <td style={{ padding: "12px 14px" }}><div style={{ display: "flex", gap: 4 }}><Btn variant="ghost" size="sm" onClick={() => handleAIAnalysis(c)} title="Analisar com IA">{I.sparkle}</Btn><Btn variant="ghost" size="sm" onClick={() => handleEdit(c)} title="Editar">{I.settings}</Btn><Btn variant="ghost" size="sm" onClick={() => handlePause(c)} title={normStatus(c.status) === "Pausada" ? "Ativar" : "Pausar"}>{I.pause}</Btn><Btn variant="ghost" size="sm" onClick={() => handleDelete(c.id)} title="Excluir">{I.close}</Btn></div></td>
                   </tr>
                 ))}</tbody>
               </table>
